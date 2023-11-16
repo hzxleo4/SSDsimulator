@@ -71,7 +71,7 @@ void CheckCachePilot(CommandInfo& ComInfo){
     }
     //cache hit
     else{
-        cout << "cache hit " << endl;
+        // cout << "cache hit " << endl;
         ComInfo.isCacheHit = 1;
     }
     CachePilot[CacheId].ComId = ComInfo.ComId;
@@ -171,7 +171,7 @@ void* FTLTask(void *rank){
         //cache hit 
         // cout << "finish pop " << endl;
         if(ComInfo.isCacheHit){
-            cout << "hit " << endl;
+            // cout << "hit " << endl;
             pthread_mutex_lock(&WaitMutex);
             WaitList.push_back(ComInfo);
             pthread_mutex_unlock(&WaitMutex);
@@ -218,6 +218,7 @@ void* FTLTask(void *rank){
 
     FTLFinish = 1;
     cout << "FTL finish " << endl;
+    //call idle FIL thread to quit
     for(int i=0;i<CHANNEL_NUM;++i){
         // cout << "i " << i << endl;
         pthread_mutex_lock(&ChannelMutex[i]);
@@ -296,6 +297,7 @@ void* FILTask(void * rank){
             pthread_mutex_unlock(&WaitMutex);
         }
         cnt++;
+        //Cache data has changed, need to check wait list
         CheckWaitList();
         if(ChQ[i].empty() && FTLFinish) break;
     }
@@ -362,7 +364,7 @@ void ReadTrace(string File){
     // int maxLBA = 0;
     // string buffer;
     ifstream infile(File);
-    int cnt = 10;
+    int cnt = 1e4;
     int i = 0;
     cout << File << endl;
     while(!infile.eof() && i < cnt){
