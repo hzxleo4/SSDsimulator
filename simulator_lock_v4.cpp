@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <string>
 #define PAGE_SIZE (16*1024)
-#define MAX_LBA 34975984
+#define MAX_LBA 34989344
 #define PAGES_PER_CACHE 16
 #define CHANNEL_NUM 4
 #define CACHE_RANGE (PAGE_SIZE*PAGES_PER_CACHE)
@@ -15,12 +15,12 @@
 #define CHANNEL_SIZE (MAX_LBA/CHANNEL_NUM)
 using namespace std;
 struct CommandInfo{
-    int DeviceId,LBA,size;
+    int DeviceId,LBA,size,ComId;
     double Time_record;
     char op;
 };
 struct CacheLineInfo{
-    int PageId,isDirty;
+    int ComId,PageId,isDirty;
 };
 int CommandNum = 0;
 CacheLineInfo Cache[CACHE_NUM];
@@ -34,7 +34,8 @@ int GlobalId = 0;
 int FTL(int CacheId,int PageId){
     int IsCacheHit = 0;
     if(Cache[CacheId].PageId == PageId) IsCacheHit = 1;
-    // usleep(5000);
+    else  Cache[CacheId].PageId = PageId;
+    usleep(5000);
     return IsCacheHit;
 }
 void FIL(){
@@ -69,7 +70,9 @@ void* TaskProgram( void *rank ){
     gettimeofday(&StartTime, NULL);
     CommandInfo ComInfo;
     int LocalId = 0,LocalCnt = 0;
+    int SegSum = 0;
     while(LocalId < CommandNum){
+        // cout << "LocalCnt " << endl;
         pthread_mutex_lock(&Idmutex);
         {
             LocalId = GlobalId;
@@ -82,10 +85,12 @@ void* TaskProgram( void *rank ){
         // cout << "LBA " << ComInfo.LBA << " MutexId " << MutexId << endl; 
         //syn
         int SegCnt = ComInfo.size / PAGE_SIZE;
+        SegSum += SegCnt;
         if(ComInfo.size % PAGE_SIZE) SegCnt++;
         for(int i=0;i<SegCnt;++i){
             int PageId = ComInfo.LBA / PAGE_SIZE;
             int CacheId = PageId % CACHE_NUM;
+            // cout << "PageId " << PageId << " CacheId " << CacheId << endl;
             pthread_mutex_lock(&RWmutex[CacheId]);
             {
                 int IsCacheHit = FTL(CacheId,PageId);
@@ -105,6 +110,7 @@ void* TaskProgram( void *rank ){
                     }
                 }
                 else{
+                    // cout << "hit" << endl;
                     CacheHit++;
                 }
                 if(ComInfo.op == 'W'){
@@ -117,14 +123,14 @@ void* TaskProgram( void *rank ){
         }
 
     }
-    double CacheHitRate = 1.0*CacheHit/LocalCnt;
+    double CacheHitRate = 1.0*CacheHit/(LocalCnt+SegSum);
     gettimeofday(&FinishTime, NULL);
     timersub(&FinishTime, &StartTime, &ElapsedTime);
     // cout << "ElapsedTime " << ElapsedTime.tv_sec << "." << ElapsedTime.tv_usec <<endl;
     timeradd(&ElapsedTime,&LocalElapsedTime,&LocalElapsedTime);
     // timeradd(&ElapsedTime,&t[my_rank],&t[my_rank]);
-    fprintf(stderr, "Task %ld (thread %ld) executed %d in %d.%03d sec. %d CacheHitRate: %.3lf\n",
-               my_rank,(long)pthread_self(), LocalCnt, LocalElapsedTime.tv_sec, LocalElapsedTime.tv_usec,CacheHit,CacheHitRate);
+    fprintf(stderr, "Task %ld (thread %ld) executed %d in %d.%03d sec. Hit:%d CacheHitRate: %.3lf\n",
+               my_rank,(long)pthread_self(), (LocalCnt+SegSum), LocalElapsedTime.tv_sec, LocalElapsedTime.tv_usec,CacheHit,CacheHitRate);
 
 }
 void ReadTrace(string File){
@@ -134,7 +140,7 @@ void ReadTrace(string File){
     // int maxLBA = 0;
     // string buffer;
     ifstream infile(File);
-    int cnt = 10;
+    int cnt = 1e4;
     int i = 0;
     cout << File << endl;
     while(!infile.eof() && i < cnt){
