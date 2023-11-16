@@ -38,8 +38,8 @@ CacheLineInfo CachePilot[CACHE_NUM],Cache[CACHE_NUM];
 int ComCnt = 0;
 int CommandNum = 0;
 int FetchFinish = 0,FTLFinish = 0,ChannelFinish = 0;
-pthread_mutex_t CQMutex,WaitMutex,SQMutex,ChannelMutex[CHANNEL_SIZE],FetchMutex,FILMutex,FTLMutex,FinishMutex,ChannelFinishMutex;
-pthread_cond_t FetchCond,FILCond,FTLCond,FinishCond,ChannelCond[CHANNEL_SIZE];
+pthread_mutex_t CQMutex,WaitMutex,SQMutex,ChannelMutex[CHANNEL_NUM],FetchMutex,FILMutex,FTLMutex,FinishMutex,ChannelFinishMutex;
+pthread_cond_t FetchCond,FILCond,FTLCond,FinishCond,ChannelCond[CHANNEL_NUM];
 int FetchNum = 1,FILNum = 0,FTLNum = 0, FinishNum = 0;
 string CommandStr[2000000];
 struct timeval StartTime, FinishTime, ElapsedTime;
@@ -56,9 +56,11 @@ void FinishCommand(){
 void CheckCachePilot(CommandInfo& ComInfo){
     int PageId = ComInfo.LBA / PAGE_SIZE;
     int CacheId = PageId % CACHE_NUM;
+    // cout << "CacheId " << CacheId << endl;
     ComInfo.ComId_victim = CachePilot[CacheId].ComId;
     //cache miss
     if(PageId != CachePilot[CacheId].PageId){
+        cout << "cache miss " << endl;
         ComInfo.isCacheHit = 0;
         if(CachePilot[CacheId].isDirty)
             ComInfo.PageId_victim = CachePilot[CacheId].PageId;
@@ -66,12 +68,14 @@ void CheckCachePilot(CommandInfo& ComInfo){
             ComInfo.PageId_victim = -1;
         CachePilot[CacheId].isDirty = 0;
         CachePilot[CacheId].PageId = PageId;
-        CachePilot[CacheId].ComId = ComInfo.ComId;
     }
     //cache hit
     else{
+        cout << "cache hit " << endl;
         ComInfo.isCacheHit = 1;
     }
+    CachePilot[CacheId].ComId = ComInfo.ComId;
+    cout << "Comid " << ComInfo.ComId << " " << "CachePilot ComId " << ComInfo.ComId_victim << endl;
     if(ComInfo.op == 'W')   CachePilot[CacheId].isDirty = 1;
 }
 int FetchCommand(string ComStr){
@@ -91,7 +95,7 @@ int FetchCommand(string ComStr){
     while(size > PAGE_SIZE){
         ComInfo.size = PAGE_SIZE;
         // ComCnt++;
-        ComInfo.ComId = ComCnt++;
+        ComInfo.ComId = ++ComCnt;
         CheckCachePilot(ComInfo);
         SQ.push(ComInfo);
         ComInfo.LBA += PAGE_SIZE;
@@ -100,7 +104,7 @@ int FetchCommand(string ComStr){
     }
     if(size){
         ComInfo.size = size;
-        ComInfo.ComId = ComCnt++;
+        ComInfo.ComId = ++ComCnt;
         CheckCachePilot(ComInfo);
         SQ.push(ComInfo);
         ComNum++;
@@ -149,7 +153,7 @@ void* FTLTask(void *rank){
             SQ.pop();            
         }
         pthread_mutex_unlock(&SQMutex);
-        i++;
+        // i++;
         //cache hit 
         if(ComInfo.isCacheHit){
             pthread_mutex_lock(&WaitMutex);
@@ -191,18 +195,28 @@ void* FTLTask(void *rank){
         // cout << ComInfo.LBA << " " << CHANNEL_SIZE << endl;
         // cout << "ChannelId " << ChannelId << endl;
     }
+
     FTLFinish = 1;
     cout << "FTL finish " << endl;
+    for(int i=0;i<CHANNEL_NUM;++i){
+        // cout << "i " << i << endl;
+        pthread_mutex_lock(&ChannelMutex[i]);
+        pthread_cond_signal(&ChannelCond[i]);
+        pthread_mutex_unlock(&ChannelMutex[i]);
+    }
+    cout << "call Channel finish " << endl;
 }
 void CheckWaitList(){
     pthread_mutex_lock(&WaitMutex);
     {
+        cout << "CheckWaitList here " << endl;
         int EraseCom[WaitList.size()];
         EraseCom[0] = 0;
         for(int i=0;i<WaitList.size();++i){
             CommandInfo ComInfo = WaitList[i];
             int PageId = ComInfo.LBA / PAGE_SIZE;
             int CacheId = PageId % CACHE_NUM;
+            cout << "ComId " << ComInfo.ComId << " ComId_victim " << ComInfo.ComId_victim << " " << "Cache ComId " << Cache[CacheId].ComId << endl;
             if(ComInfo.ComId_victim == Cache[CacheId].ComId){
                 EraseCom[0]++;
                 EraseCom[EraseCom[0]] = i;
@@ -212,7 +226,7 @@ void CheckWaitList(){
             pthread_mutex_lock(&CQMutex);
             {
                 CQ.push(WaitList[EraseCom[i]-i+1]);
-                FinishNum++;
+                // FinishNum++;
             }
             pthread_mutex_unlock(&CQMutex);
             WaitList.erase(WaitList.begin()+EraseCom[i]-i+1);
@@ -270,12 +284,21 @@ void* FILTask(void * rank){
         ChannelFinish++;
     }
     pthread_mutex_unlock(&ChannelFinishMutex);
-    cout << "FIL channel " << i << " finish " << cnt << endl;
+    cout << "FIL channel " << i << " finish " << endl;
 }
 void WriteCache(CommandInfo ComInfo){
     int PageId = ComInfo.LBA / PAGE_SIZE;
-    int CacheId = PageId / CACHE_NUM;
-    counter.compare_exchange_strong(Cache[CacheId].ComId, ComInfo.ComId);
+    int CacheId = PageId % CACHE_NUM;
+    // cout<< "CacheId " << CacheId << endl;
+    // cout << "swap " << ComInfo.ComId << endl;
+    // cout << "Cache " << Cache[CacheId].ComId;
+    // bool isSwap = counter.compare_exchange_strong(Cache[CacheId].ComId, ComInfo.ComId);
+    // while(!isSwap)
+    //     isSwap = counter.compare_exchange_strong(Cache[CacheId].ComId, ComInfo.ComId);
+    Cache[CacheId].ComId = ComInfo.ComId;
+    // cout << " " << Cache[CacheId].ComId << endl;
+    // if(!isSwap)
+        // cout << "isSwap " << isSwap << endl;
 }
 void* FinishTask(void * rank){
     // int i = 0;
@@ -286,7 +309,7 @@ void* FinishTask(void * rank){
             while(FinishNum <= 0){
                 pthread_cond_wait(&FinishCond,&FinishMutex);
             }
-            // cout << "FinishNum " << FinishNum << endl;
+            cout << "FinishNum " << FinishNum << endl;
             FinishNum--;
         }
         pthread_mutex_unlock(&FinishMutex);
@@ -295,6 +318,7 @@ void* FinishTask(void * rank){
         {
             ComInfo = CQ.front();
             CQ.pop();
+            cout << "ComId " << ComInfo.ComId << endl;
         }
         pthread_mutex_unlock(&CQMutex);
         WriteCache(ComInfo);
@@ -306,12 +330,6 @@ void* FinishTask(void * rank){
     }
 
     cout << "Finish finish " << endl;
-    for(int i=0;i<CHANNEL_NUM;++i){
-        // cout << "i " << i << endl;
-        pthread_mutex_lock(&ChannelMutex[i]);
-        pthread_cond_signal(&ChannelCond[i]);
-        pthread_mutex_unlock(&ChannelMutex[i]);
-    }
     gettimeofday(&FinishTime, NULL);
 }
 void ReadTrace(string File){
@@ -321,7 +339,7 @@ void ReadTrace(string File){
     // int maxLBA = 0;
     // string buffer;
     ifstream infile(File);
-    int cnt = 1;
+    int cnt = 10;
     int i = 0;
     cout << File << endl;
     while(!infile.eof() && i < cnt){
@@ -347,9 +365,13 @@ void Init(){
     pthread_cond_init(&FTLCond,NULL);
     pthread_cond_init(&FILCond,NULL);
     pthread_cond_init(&FinishCond,NULL);
-    for(int i=0;i<CHANNEL_SIZE;++i){
+    for(int i=0;i<CHANNEL_NUM;++i){
         pthread_mutex_init(&ChannelMutex[i],NULL);
         pthread_cond_init(&ChannelCond[i],NULL);
+    }
+    for(int i=0;i<CACHE_NUM;++i){
+        CachePilot[i].ComId = -1;
+        Cache[i].ComId = -1;
     }
 }   
 int main( int argc, char *argv[] )  
@@ -374,6 +396,8 @@ int main( int argc, char *argv[] )
     timersub(&FinishTime, &StartTime, &ElapsedTime);
     fprintf(stderr, "Task executed %d instructions in %d.%03d sec\n",
                 CommandNum, ElapsedTime.tv_sec,ElapsedTime.tv_usec);
+    // if(thread_handles == NULL)  cout << "11111 " << endl;
     free(thread_handles);
+    cout << "finish free " << endl;
     return 0;
 }
