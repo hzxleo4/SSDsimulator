@@ -37,6 +37,7 @@ vector<CommandInfo> WaitList;
 CacheLineInfo CachePilot[CACHE_NUM],Cache[CACHE_NUM];
 int ComCnt = 0;
 int CommandNum = 0;
+int TotalCacheHit = 0;
 int FetchFinish = 0,FTLFinish = 0,ChannelFinish = 0;
 pthread_mutex_t CQMutex,WaitMutex,SQMutex,ChannelMutex[CHANNEL_NUM],FetchMutex,FILMutex,FTLMutex,FinishMutex,ChannelFinishMutex;
 pthread_cond_t FetchCond,FILCond,FTLCond,FinishCond,ChannelCond[CHANNEL_NUM];
@@ -47,7 +48,7 @@ struct timeval StartTime, FinishTime, ElapsedTime;
 void FTL(){
     usleep(5000);
 }
-void FIL(){
+void FlashCommandexe(){
     usleep(150000);
 }
 void FinishCommand(){
@@ -58,6 +59,7 @@ void CheckCachePilot(CommandInfo& ComInfo){
     int CacheId = PageId % CACHE_NUM;
     // cout << "CacheId " << CacheId << endl;
     ComInfo.ComId_victim = CachePilot[CacheId].ComId;
+    // cout << "PageId " << PageId << " CachePageId " << CachePilot[CacheId].PageId << endl;
     //cache miss
     if(PageId != CachePilot[CacheId].PageId){
         // cout << "cache miss " << endl;
@@ -72,6 +74,7 @@ void CheckCachePilot(CommandInfo& ComInfo){
     //cache hit
     else{
         // cout << "cache hit " << endl;
+        TotalCacheHit++;
         ComInfo.isCacheHit = 1;
     }
     CachePilot[CacheId].ComId = ComInfo.ComId;
@@ -128,6 +131,7 @@ int FetchCommand(string ComStr){
 void* FetchTask(void *rank){
     int i = 0;
     gettimeofday(&StartTime, NULL);
+    int TotalCommandNum = 0;
     while(i < CommandNum){
         // cout << "i " << i << endl;
         int ComNum = FetchCommand(CommandStr[i]);
@@ -137,6 +141,7 @@ void* FetchTask(void *rank){
         {
             // cout << "FTLNum " << FTLNum << endl;
             FTLNum += ComNum;
+            TotalCommandNum += ComNum;
             // cout << "FTLNum: " << FTLNum << endl;
             pthread_cond_signal(&FTLCond);
         }
@@ -144,6 +149,7 @@ void* FetchTask(void *rank){
         // cout << "here " << endl;
     }
     FetchFinish = 1;
+    cout << "Total CacheHit: " << TotalCacheHit << " CacheHitRate: " << 1.0*TotalCacheHit/TotalCommandNum<< endl;
     cout << "Fetch finish " << endl;
 }
 void* FTLTask(void *rank){
@@ -289,7 +295,7 @@ void* FILTask(void * rank){
         pthread_mutex_unlock(&ChannelMutex[i]);
         // cout << "Rank " << i << endl;
         if(!ExecuteFlag)    break;
-        FIL();
+        FlashCommandexe();//？FlashCommandexe
         if(ComInfo.PageId_victim == -1){
             // cout << "WaitList add " << endl;
             pthread_mutex_lock(&WaitMutex);

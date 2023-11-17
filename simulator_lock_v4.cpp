@@ -33,6 +33,7 @@ int GlobalId = 0;
 // return 1 2 (io num)
 int FTL(int CacheId,int PageId){
     int IsCacheHit = 0;
+    // cout << "PageId " << PageId << " CachePageId " << Cache[CacheId].PageId << endl;
     if(Cache[CacheId].PageId == PageId) IsCacheHit = 1;
     else  Cache[CacheId].PageId = PageId;
     usleep(5000);
@@ -80,13 +81,16 @@ void* TaskProgram( void *rank ){
             LocalCnt++;
         }
         pthread_mutex_unlock(&Idmutex);
-        if(LocalId >= CommandNum)   break;
+        if(LocalId >= CommandNum){
+            LocalCnt--;
+            break;
+        }   
         ComInfo = FetchCommand(CommandStr[LocalId]);
         // cout << "LBA " << ComInfo.LBA << " MutexId " << MutexId << endl; 
         //syn
         int SegCnt = ComInfo.size / PAGE_SIZE;
-        SegSum += SegCnt;
         if(ComInfo.size % PAGE_SIZE) SegCnt++;
+        SegSum += SegCnt-1;
         for(int i=0;i<SegCnt;++i){
             int PageId = ComInfo.LBA / PAGE_SIZE;
             int CacheId = PageId % CACHE_NUM;
