@@ -18,6 +18,8 @@
 #define CHANNEL_SIZE (MAX_LBA/CHANNEL_NUM)
 #define CACHE_RANGE (PAGE_SIZE*PAGES_PER_CACHE)
 #define CACHE_NUM ((MAX_LBA/CACHE_RANGE)+1)
+#define TRANS_LATENCY 5000
+#define FLASH_LATENCY 150000
 // #define CHANNEL_EXECUTE_TIME 150000
 // #define PIPELINE_TIMEVAL 10000
 using namespace std;
@@ -46,10 +48,10 @@ string CommandStr[2000000];
 struct timeval StartTime, FinishTime, ElapsedTime;
 // timeval t[64];
 void FTL(){
-    usleep(5000);
+    usleep(TRANS_LATENCY);
 }
 void FlashCommandexe(){
-    usleep(150000);
+    usleep(FLASH_LATENCY);
 }
 void FinishCommand(){
     usleep(10000);
